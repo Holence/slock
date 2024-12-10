@@ -22,6 +22,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <time.h>
+#include <math.h>
 
 #include "arg.h"
 #include "util.h"
@@ -29,9 +30,12 @@
 char *argv0;
 
 #include "config.h"
-#define NUM_BRICKS       LENGTH(bricks)
-#define NUM_MICROBRICKS  (NUM_BRICKS * MICRO_BRICKS_NUM * MICRO_BRICKS_NUM)
-#define NUM_BRICK_COLORS LENGTH(BRICK_COLORS)
+#define NUM_BRICKS            LENGTH(bricks_pos)
+#define NUM_MICROBRICKS       (NUM_BRICKS * MICROBRICKS_PER_BRICK * MICROBRICKS_PER_BRICK)
+#define NUM_DIRT_COLORS       LENGTH(DIRT_COLORS)
+#define NUM_BRICK_COLORS      LENGTH(BRICK_COLORS)
+#define PIXELS_PER_MICROBRICK (PIXELS_PER_BRICK / MICROBRICKS_PER_BRICK)
+#define PIXELS_PER_DIRT       (PIXELS_PER_MICROBRICK / DIRTS_PER_MICROBRICK)
 
 #define LENGTH(X) (sizeof X / sizeof X[0])
 #define MAX(i, j) (((i) > (j)) ? (i) : (j))
@@ -45,10 +49,8 @@ struct lock {
     unsigned int xoff, yoff, mw, mh;
     Drawable drawable;
     GC gc;
-    XRectangle bricks[NUM_MICROBRICKS];
+    short bricks_pos[NUM_MICROBRICKS][2];
 };
-unsigned long background_color;
-unsigned long brick_colors[NUM_BRICK_COLORS];
 
 struct xrandr {
     int active;
@@ -135,24 +137,37 @@ static void
 caclulate_bricks(struct lock *lock) {
     size_t index = 0;
     for (size_t n = 0; n < NUM_BRICKS; n++) {
-        unsigned short x = (bricks[n].x * PIXEL_PER_BRICK) + lock->xoff + ((lock->mw) / 2) - (LOGO_W / 2 * PIXEL_PER_BRICK);
-        unsigned short y = (bricks[n].y * PIXEL_PER_BRICK) + lock->yoff + ((lock->mh) / 2) - (LOGO_H / 2 * PIXEL_PER_BRICK);
-        unsigned short micro_width = bricks[n].width * PIXEL_PER_BRICK / MICRO_BRICKS_NUM;
-        unsigned short micro_height = bricks[n].height * PIXEL_PER_BRICK / MICRO_BRICKS_NUM;
+        short x = (bricks_pos[n][0] * PIXELS_PER_BRICK) + lock->xoff + ((lock->mw) / 2) - (LOGO_W / 2 * PIXELS_PER_BRICK);
+        short y = (bricks_pos[n][1] * PIXELS_PER_BRICK) + lock->yoff + ((lock->mh) / 2) - (LOGO_H / 2 * PIXELS_PER_BRICK);
 
-        unsigned short microbrick_y = y;
-        for (size_t i = 0; i < MICRO_BRICKS_NUM; i++) {
-            unsigned short microbrick_x = x;
-            for (size_t j = 0; j < MICRO_BRICKS_NUM; j++) {
-                lock->bricks[index].x = microbrick_x;
-                lock->bricks[index].y = microbrick_y;
-                lock->bricks[index].width = micro_width;
-                lock->bricks[index].height = micro_height;
-                microbrick_x += micro_width;
+        short microbrick_y = y;
+        for (size_t i = 0; i < MICROBRICKS_PER_BRICK; i++) {
+            short microbrick_x = x;
+            for (size_t j = 0; j < MICROBRICKS_PER_BRICK; j++) {
+                lock->bricks_pos[index][0] = microbrick_x;
+                lock->bricks_pos[index][1] = microbrick_y;
+                microbrick_x += PIXELS_PER_MICROBRICK;
                 index++;
             }
-            microbrick_y += micro_height;
+            microbrick_y += PIXELS_PER_MICROBRICK;
         }
+    }
+}
+
+static unsigned long
+dim_color(unsigned long hex_color, double percent) {
+    if (percent < 1) {
+        unsigned char r = (hex_color >> 16) & 0xFF;
+        unsigned char g = (hex_color >> 8) & 0xFF;
+        unsigned char b = hex_color & 0xFF;
+
+        r = (double)r * percent;
+        g = (double)g * percent;
+        b = (double)b * percent;
+
+        return (r << 16) | (g << 8) | b;
+    } else {
+        return hex_color;
     }
 }
 
@@ -175,21 +190,57 @@ reset_logo(struct lock **locks, int nscreens) {
     srand(seed);
     logo_blocks_left = NUM_MICROBRICKS;
     for (size_t screen = 0; screen < nscreens; screen++) {
-        shuffle(locks[screen]->bricks, NUM_MICROBRICKS, sizeof(XRectangle));
+        shuffle(locks[screen]->bricks_pos, NUM_MICROBRICKS, sizeof(short) * 2);
+    }
+}
+
+static unsigned long
+generate_backgroung_pixle_color(unsigned int height, unsigned int y) {
+    // top reserved for grass
+    y += PIXELS_PER_DIRT;
+    if (y < 4 * PIXELS_PER_DIRT) {
+        // mix of grass and dirt
+        if (rand() % (y / PIXELS_PER_DIRT) == 0) {
+            return GRASS_COLORS[rand() % LENGTH(GRASS_COLORS)];
+        } else {
+            return DIRT_COLORS[rand() % NUM_DIRT_COLORS];
+        }
+    }
+
+    // only dirt
+    unsigned long color = DIRT_COLORS[rand() % NUM_DIRT_COLORS];
+    return dim_color(color, exp(-(double)y / (height / 3.14159)));
+}
+
+static void
+drawbackground(Display *dpy, struct lock **locks, int nscreens) {
+    for (int screen = 0; screen < nscreens; screen++) {
+        unsigned short width = locks[screen]->x;
+        unsigned short height = locks[screen]->y;
+        for (unsigned int y = 0; y < height; y += PIXELS_PER_DIRT) {
+            for (unsigned int x = 0; x < width; x += PIXELS_PER_DIRT) {
+                XSetForeground(dpy, locks[screen]->gc, generate_backgroung_pixle_color(height, y));
+                XFillRectangle(dpy, locks[screen]->drawable, locks[screen]->gc, x, y, PIXELS_PER_DIRT, PIXELS_PER_DIRT);
+            }
+        }
+        // store background in locks[screen]->pmap
+        locks[screen]->pmap = XCreatePixmap(dpy, locks[screen]->root, locks[screen]->x, locks[screen]->y, DefaultDepth(dpy, screen));
+        XCopyArea(dpy, locks[screen]->drawable, locks[screen]->pmap, locks[screen]->gc, 0, 0, locks[screen]->x, locks[screen]->y, 0, 0);
     }
 }
 
 static void
-drawlogo(Display *dpy, struct lock **lock, int nscreens) {
+drawlogo(Display *dpy, struct lock **locks, int nscreens) {
     for (int screen = 0; screen < nscreens; screen++) {
-        XSetForeground(dpy, lock[screen]->gc, background_color);
-        XFillRectangle(dpy, lock[screen]->drawable, lock[screen]->gc, 0, 0, lock[screen]->x, lock[screen]->y);
+        // restore background
+        XCopyArea(dpy, locks[screen]->pmap, locks[screen]->drawable, locks[screen]->gc, 0, 0, locks[screen]->x, locks[screen]->y, 0, 0);
+
         srand(seed);
         for (size_t i = 0; i < logo_blocks_left; i++) {
-            XSetForeground(dpy, lock[screen]->gc, brick_colors[rand() % NUM_BRICK_COLORS]);
-            XFillRectangle(dpy, lock[screen]->drawable, lock[screen]->gc, lock[screen]->bricks[i].x, lock[screen]->bricks[i].y, lock[screen]->bricks[i].width, lock[screen]->bricks[i].height);
+            XSetForeground(dpy, locks[screen]->gc, BRICK_COLORS[rand() % NUM_BRICK_COLORS]);
+            XFillRectangle(dpy, locks[screen]->drawable, locks[screen]->gc, locks[screen]->bricks_pos[i][0], locks[screen]->bricks_pos[i][1], PIXELS_PER_MICROBRICK, PIXELS_PER_MICROBRICK);
         }
-        XCopyArea(dpy, lock[screen]->drawable, lock[screen]->win, lock[screen]->gc, 0, 0, lock[screen]->x, lock[screen]->y, 0, 0);
+        XCopyArea(dpy, locks[screen]->drawable, locks[screen]->win, locks[screen]->gc, 0, 0, locks[screen]->x, locks[screen]->y, 0, 0);
         XSync(dpy, False);
     }
 }
@@ -298,7 +349,7 @@ lockscreen(Display *dpy, struct xrandr *rr, int screen) {
     char curs[] = {0, 0, 0, 0, 0, 0, 0, 0};
     int i, ptgrab, kbgrab;
     struct lock *lock;
-    XColor color, dummy;
+    XColor color;
     XSetWindowAttributes wa;
     Cursor invisible;
 #ifdef XINERAMA
@@ -311,14 +362,6 @@ lockscreen(Display *dpy, struct xrandr *rr, int screen) {
 
     lock->screen = screen;
     lock->root = RootWindow(dpy, lock->screen);
-
-    XAllocNamedColor(dpy, DefaultColormap(dpy, lock->screen), BACKGROUND_COLOR, &color, &dummy);
-    background_color = color.pixel;
-    for (i = 0; i < NUM_BRICK_COLORS; i++) {
-        // set random color to each brick
-        XAllocNamedColor(dpy, DefaultColormap(dpy, lock->screen), BRICK_COLORS[i], &color, &dummy);
-        brick_colors[i] = color.pixel;
-    }
 
     lock->x = DisplayWidth(dpy, lock->screen);
     lock->y = DisplayHeight(dpy, lock->screen);
@@ -489,12 +532,14 @@ int main(int argc, char **argv) {
     }
 
     reset_logo(locks, nscreens);
+    drawbackground(dpy, locks, nscreens);
     drawlogo(dpy, locks, nscreens);
 
     /* everything is now blank. Wait for the correct password */
     readpw(dpy, &rr, locks, nscreens, hash);
 
     for (nlocks = 0, s = 0; s < nscreens; s++) {
+        XFreePixmap(dpy, locks[s]->pmap);
         XFreePixmap(dpy, locks[s]->drawable);
         XFreeGC(dpy, locks[s]->gc);
     }

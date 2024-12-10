@@ -16,7 +16,7 @@ XINERAMAFLAGS = -DXINERAMA
 
 # includes and libs
 INCS = -I. -I/usr/include -I${X11INC}
-LIBS = -L/usr/lib -lc -lcrypt -L${X11LIB} -lX11 ${XINERAMALIBS} -lXext -lXrandr
+LIBS = -L/usr/lib -lc -lm -lcrypt -L${X11LIB} -lX11 ${XINERAMALIBS} -lXext -lXrandr
 
 # flags
 CPPFLAGS = -DVERSION=\"${VERSION}\" -D_DEFAULT_SOURCE -DHAVE_SHADOW_H ${XINERAMAFLAGS}
