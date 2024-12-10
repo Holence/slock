@@ -1,6 +1,5 @@
 /* See LICENSE file for license details. */
 #define _XOPEN_SOURCE 500
-#define LENGTH(X)     (sizeof X / sizeof X[0])
 #if HAVE_SHADOW_H
 #include <shadow.h>
 #endif
@@ -22,33 +21,34 @@
 #include <X11/keysym.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <time.h>
 
 #include "arg.h"
 #include "util.h"
 
 char *argv0;
 
-enum {
-    BACKGROUND,
-    INIT,
-    INPUT,
-    FAILED,
-    NUMCOLS
-};
-
 #include "config.h"
+#define NUM_BRICKS       LENGTH(bricks)
+#define NUM_MICROBRICKS  (NUM_BRICKS * MICRO_BRICKS_NUM * MICRO_BRICKS_NUM)
+#define NUM_BRICK_COLORS LENGTH(BRICK_COLORS)
+
+#define LENGTH(X) (sizeof X / sizeof X[0])
+#define MAX(i, j) (((i) > (j)) ? (i) : (j))
+#define MIN(i, j) (((i) < (j)) ? (i) : (j))
 
 struct lock {
     int screen;
     Window root, win;
     Pixmap pmap;
-    unsigned long colors[NUMCOLS];
     unsigned int x, y;
     unsigned int xoff, yoff, mw, mh;
     Drawable drawable;
     GC gc;
-    XRectangle rectangles[LENGTH(rectangles)];
+    XRectangle bricks[NUM_MICROBRICKS];
 };
+unsigned long background_color;
+unsigned long brick_colors[NUM_BRICK_COLORS];
 
 struct xrandr {
     int active;
@@ -132,25 +132,66 @@ gethash(void) {
 }
 
 static void
-resizerectangles(struct lock *lock) {
-    int i;
+caclulate_bricks(struct lock *lock) {
+    size_t index = 0;
+    for (size_t n = 0; n < NUM_BRICKS; n++) {
+        unsigned short x = (bricks[n].x * PIXEL_PER_BRICK) + lock->xoff + ((lock->mw) / 2) - (LOGO_W / 2 * PIXEL_PER_BRICK);
+        unsigned short y = (bricks[n].y * PIXEL_PER_BRICK) + lock->yoff + ((lock->mh) / 2) - (LOGO_H / 2 * PIXEL_PER_BRICK);
+        unsigned short micro_width = bricks[n].width * PIXEL_PER_BRICK / MICRO_BRICKS_NUM;
+        unsigned short micro_height = bricks[n].height * PIXEL_PER_BRICK / MICRO_BRICKS_NUM;
 
-    for (i = 0; i < LENGTH(rectangles); i++) {
-        lock->rectangles[i].x = (rectangles[i].x * logosize) + lock->xoff + ((lock->mw) / 2) - (logow / 2 * logosize);
-        lock->rectangles[i].y = (rectangles[i].y * logosize) + lock->yoff + ((lock->mh) / 2) - (logoh / 2 * logosize);
-        lock->rectangles[i].width = rectangles[i].width * logosize;
-        lock->rectangles[i].height = rectangles[i].height * logosize;
+        unsigned short microbrick_y = y;
+        for (size_t i = 0; i < MICRO_BRICKS_NUM; i++) {
+            unsigned short microbrick_x = x;
+            for (size_t j = 0; j < MICRO_BRICKS_NUM; j++) {
+                lock->bricks[index].x = microbrick_x;
+                lock->bricks[index].y = microbrick_y;
+                lock->bricks[index].width = micro_width;
+                lock->bricks[index].height = micro_height;
+                microbrick_x += micro_width;
+                index++;
+            }
+            microbrick_y += micro_height;
+        }
+    }
+}
+
+static int
+rand_comparison(const void *a, const void *b) {
+    return rand() % 2 ? +1 : -1;
+}
+
+static void
+shuffle(void *base, size_t nmemb, size_t size) {
+    qsort(base, nmemb, size, rand_comparison);
+}
+
+static unsigned int seed = 0;
+static int logo_blocks_left = NUM_MICROBRICKS;
+
+static void
+reset_logo(struct lock **locks, int nscreens) {
+    seed = time(NULL);
+    srand(seed);
+    logo_blocks_left = NUM_MICROBRICKS;
+    for (size_t screen = 0; screen < nscreens; screen++) {
+        shuffle(locks[screen]->bricks, NUM_MICROBRICKS, sizeof(XRectangle));
     }
 }
 
 static void
-drawlogo(Display *dpy, struct lock *lock, int color) {
-    XSetForeground(dpy, lock->gc, lock->colors[BACKGROUND]);
-    XFillRectangle(dpy, lock->drawable, lock->gc, 0, 0, lock->x, lock->y);
-    XSetForeground(dpy, lock->gc, lock->colors[color]);
-    XFillRectangles(dpy, lock->drawable, lock->gc, lock->rectangles, LENGTH(rectangles));
-    XCopyArea(dpy, lock->drawable, lock->win, lock->gc, 0, 0, lock->x, lock->y, 0, 0);
-    XSync(dpy, False);
+drawlogo(Display *dpy, struct lock **lock, int nscreens) {
+    for (int screen = 0; screen < nscreens; screen++) {
+        XSetForeground(dpy, lock[screen]->gc, background_color);
+        XFillRectangle(dpy, lock[screen]->drawable, lock[screen]->gc, 0, 0, lock[screen]->x, lock[screen]->y);
+        srand(seed);
+        for (size_t i = 0; i < logo_blocks_left; i++) {
+            XSetForeground(dpy, lock[screen]->gc, brick_colors[rand() % NUM_BRICK_COLORS]);
+            XFillRectangle(dpy, lock[screen]->drawable, lock[screen]->gc, lock[screen]->bricks[i].x, lock[screen]->bricks[i].y, lock[screen]->bricks[i].width, lock[screen]->bricks[i].height);
+        }
+        XCopyArea(dpy, lock[screen]->drawable, lock[screen]->win, lock[screen]->gc, 0, 0, lock[screen]->x, lock[screen]->y, 0, 0);
+        XSync(dpy, False);
+    }
 }
 
 static void
@@ -158,15 +199,13 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
        const char *hash) {
     XRRScreenChangeNotifyEvent *rre;
     char buf[32], passwd[256], *inputhash;
-    int num, screen, running, failure, oldc;
-    unsigned int len, color;
+    int num, screen, running;
+    unsigned int len;
     KeySym ksym;
     XEvent ev;
 
     len = 0;
     running = 1;
-    failure = 0;
-    oldc = INIT;
 
     while (running && !XNextEvent(dpy, &ev)) {
         if (ev.type == KeyPress) {
@@ -194,7 +233,7 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
                     running = !!strcmp(inputhash, hash);
                 if (running) {
                     XBell(dpy, 100);
-                    failure = 1;
+                    reset_logo(locks, nscreens);
                 }
                 explicit_bzero(&passwd, sizeof(passwd));
                 len = 0;
@@ -202,25 +241,35 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
             case XK_Escape:
                 explicit_bzero(&passwd, sizeof(passwd));
                 len = 0;
+                reset_logo(locks, nscreens);
                 break;
             case XK_BackSpace:
-                if (len)
+                if (len) {
                     passwd[--len] = '\0';
+                    if (len) {
+                        int add = rand() % MAX_BREAK_BRICKS_NUM;
+                        logo_blocks_left += MAX(1, add);
+                        logo_blocks_left = MIN(NUM_MICROBRICKS - len, logo_blocks_left);
+                    } else {
+                        logo_blocks_left = NUM_MICROBRICKS;
+                    }
+                }
                 break;
             default:
                 if (num && !iscntrl((int)buf[0]) &&
                     (len + num < sizeof(passwd))) {
                     memcpy(passwd + len, buf, num);
                     len += num;
+
+                    int minus = rand() % MAX_BREAK_BRICKS_NUM;
+                    logo_blocks_left -= MAX(1, minus);
+                    logo_blocks_left = MAX(0, logo_blocks_left);
                 }
                 break;
             }
-            color = len ? INPUT : ((failure || failonclear) ? FAILED : INIT);
-            if (running && oldc != color) {
-                for (screen = 0; screen < nscreens; screen++) {
-                    drawlogo(dpy, locks[screen], color);
-                }
-                oldc = color;
+            // select color
+            if (running) {
+                drawlogo(dpy, locks, nscreens);
             }
         } else if (rr->active && ev.type == rr->evbase + RRScreenChangeNotify) {
             rre = (XRRScreenChangeNotifyEvent *)&ev;
@@ -263,10 +312,12 @@ lockscreen(Display *dpy, struct xrandr *rr, int screen) {
     lock->screen = screen;
     lock->root = RootWindow(dpy, lock->screen);
 
-    for (i = 0; i < NUMCOLS; i++) {
-        XAllocNamedColor(dpy, DefaultColormap(dpy, lock->screen),
-                         colorname[i], &color, &dummy);
-        lock->colors[i] = color.pixel;
+    XAllocNamedColor(dpy, DefaultColormap(dpy, lock->screen), BACKGROUND_COLOR, &color, &dummy);
+    background_color = color.pixel;
+    for (i = 0; i < NUM_BRICK_COLORS; i++) {
+        // set random color to each brick
+        XAllocNamedColor(dpy, DefaultColormap(dpy, lock->screen), BRICK_COLORS[i], &color, &dummy);
+        brick_colors[i] = color.pixel;
     }
 
     lock->x = DisplayWidth(dpy, lock->screen);
@@ -291,7 +342,7 @@ lockscreen(Display *dpy, struct xrandr *rr, int screen) {
 
     /* init */
     wa.override_redirect = 1;
-    wa.background_pixel = lock->colors[BACKGROUND];
+    // wa.background_pixel = background_color;
     lock->win = XCreateWindow(dpy, lock->root, 0, 0,
                               lock->x, lock->y,
                               0, DefaultDepth(dpy, lock->screen),
@@ -303,7 +354,7 @@ lockscreen(Display *dpy, struct xrandr *rr, int screen) {
                                     &color, &color, 0, 0);
     XDefineCursor(dpy, lock->win, invisible);
 
-    resizerectangles(lock);
+    caclulate_bricks(lock);
 
     /* Try to grab mouse pointer *and* keyboard for 600ms, else fail the lock */
     for (i = 0, ptgrab = kbgrab = -1; i < 6; i++) {
@@ -326,7 +377,6 @@ lockscreen(Display *dpy, struct xrandr *rr, int screen) {
                 XRRSelectInput(dpy, lock->win, RRScreenChangeNotifyMask);
 
             XSelectInput(dpy, lock->root, SubstructureNotifyMask);
-            drawlogo(dpy, lock, INIT);
             return lock;
         }
 
@@ -437,6 +487,9 @@ int main(int argc, char **argv) {
             _exit(1);
         }
     }
+
+    reset_logo(locks, nscreens);
+    drawlogo(dpy, locks, nscreens);
 
     /* everything is now blank. Wait for the correct password */
     readpw(dpy, &rr, locks, nscreens, hash);
