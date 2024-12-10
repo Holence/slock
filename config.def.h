@@ -4,11 +4,11 @@ static const char *group = "nogroup";
 
 // color from Minecraft Grass
 static const unsigned long GRASS_COLORS[] = {
-    0x465c38,  // #465c38
     0x2c3a21,  // #2c3a21
     0x34442a,  // #34442a
-    0x556e46,  // #556e46
     0x3d5030,  // #3d5030
+    0x465c38,  // #465c38
+    0x556e46,  // #556e46
     0x74945c,  // #74945c
 };
 // color from Minecraft Dirt
@@ -35,13 +35,17 @@ static const unsigned long BRICK_COLORS[] = {
     0x35482a,  // #35482a
     0x3a3d36,  // #3a3d36
     0x3f4829,  // #3f4829
+    0x444645,  // #444645
     0x464d38,  // #464d38
     0x4d5c35,  // #4d5c35
     0x4e5d36,  // #4e5d36
     0x4f4d50,  // #4f4d50
     0x505d2f,  // #505d2f
     0x5b6d41,  // #5b6d41
+    0x627243,  // #627243
     0x657547,  // #657547
+    0x676767,  // #676767
+    0x6f6c73,  // #6f6c73
     0x728452,  // #728452
     0x7c8b5b,  // #7c8b5b
     0xa2ac97,  // #a2ac97

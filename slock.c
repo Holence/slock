@@ -511,7 +511,6 @@ int main(int argc, char **argv) {
         else
             break;
     }
-    XSync(dpy, 0);
 
     /* did we manage to lock everything? */
     if (nlocks != nscreens)
