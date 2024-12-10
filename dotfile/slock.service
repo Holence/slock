@@ -3,7 +3,7 @@ Description=User suspend actions
 After=suspend.target
 
 [Service]
-User=%i
+User=UserName
 Type=simple
 Environment="DISPLAY=:0" # echo $DISPLAY
 # Environment="XAUTHORITY=~/.Xauthority"
