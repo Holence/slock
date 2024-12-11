@@ -33,22 +33,19 @@ static const unsigned long BRICK_COLORS[] = {
     0x303821,  // #303821
     0x323a23,  // #323a23
     0x35482a,  // #35482a
-    0x3a3d36,  // #3a3d36
     0x3f4829,  // #3f4829
-    0x444645,  // #444645
     0x464d38,  // #464d38
     0x4d5c35,  // #4d5c35
     0x4e5d36,  // #4e5d36
-    0x4f4d50,  // #4f4d50
     0x505d2f,  // #505d2f
     0x5b6d41,  // #5b6d41
     0x627243,  // #627243
     0x657547,  // #657547
     0x676767,  // #676767
-    0x6f6c73,  // #6f6c73
     0x728452,  // #728452
     0x7c8b5b,  // #7c8b5b
     0xa2ac97,  // #a2ac97
+    0xb3b994,  // #b3b994
 };
 
 // how many brick disappear per input
@@ -88,6 +85,6 @@ static short bricks_pos[][2] = {
 };
 #define LOGO_W                12
 #define LOGO_H                6
-#define PIXELS_PER_BRICK      120
+#define PIXELS_PER_BRICK      150
 #define MICROBRICKS_PER_BRICK 5
 #define DIRTS_PER_MICROBRICK  2

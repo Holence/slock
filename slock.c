@@ -134,13 +134,20 @@ gethash(void) {
     return hash;
 }
 
+static short brick_y_max;
+static short brick_y_min;
+static short brick_y_span;
 static void
 caclulate_bricks(struct lock *lock) {
+    brick_y_max = 0;
+    brick_y_min = 0x7fff;
+
     size_t index = 0;
     for (size_t n = 0; n < NUM_BRICKS; n++) {
         short x = (bricks_pos[n][0] * PIXELS_PER_BRICK) + lock->xoff + ((lock->mw) / 2) - (LOGO_W / 2 * PIXELS_PER_BRICK);
         short y = (bricks_pos[n][1] * PIXELS_PER_BRICK) + lock->yoff + ((lock->mh) / 2) - (LOGO_H / 2 * PIXELS_PER_BRICK);
 
+        brick_y_min = y < brick_y_min ? y : brick_y_min;
         short microbrick_y = y;
         for (size_t i = 0; i < MICROBRICKS_PER_BRICK; i++) {
             short microbrick_x = x;
@@ -151,8 +158,10 @@ caclulate_bricks(struct lock *lock) {
                 index++;
             }
             microbrick_y += PIXELS_PER_MICROBRICK;
+            brick_y_max = microbrick_y > brick_y_max ? microbrick_y : brick_y_max;
         }
     }
+    brick_y_span = brick_y_max - brick_y_min;
 }
 
 static unsigned long
@@ -242,7 +251,9 @@ drawlogo(Display *dpy, struct lock **locks, int nscreens) {
 
         srand(logo_seed);
         for (size_t i = 0; i < logo_blocks_left; i++) {
-            XSetForeground(dpy, locks[screen]->gc, BRICK_COLORS[rand() % NUM_BRICK_COLORS]);
+            short y = locks[screen]->bricks_pos[i][1];
+            unsigned long dimmed_color = dim_color(BRICK_COLORS[rand() % NUM_BRICK_COLORS], exp(-(double)(y - brick_y_min) / (brick_y_span * 1.25)) + 0.125);
+            XSetForeground(dpy, locks[screen]->gc, dimmed_color);
             XFillRectangle(dpy, locks[screen]->drawable, locks[screen]->gc, locks[screen]->bricks_pos[i][0], locks[screen]->bricks_pos[i][1], PIXELS_PER_MICROBRICK, PIXELS_PER_MICROBRICK);
         }
         XCopyArea(dpy, locks[screen]->drawable, locks[screen]->win, locks[screen]->gc, 0, 0, locks[screen]->x, locks[screen]->y, 0, 0);
