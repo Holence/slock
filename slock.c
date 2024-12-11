@@ -22,6 +22,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <time.h>
+#include <sys/time.h>
 #include <math.h>
 
 #include "arg.h"
@@ -181,13 +182,15 @@ shuffle(void *base, size_t nmemb, size_t size) {
     qsort(base, nmemb, size, rand_comparison);
 }
 
-static unsigned int seed = 0;
+static struct timeval tick;
+static unsigned int logo_seed;
 static int logo_blocks_left = NUM_MICROBRICKS;
 
 static void
 reset_logo(struct lock **locks, int nscreens) {
-    seed = time(NULL);
-    srand(seed);
+    gettimeofday(&tick, NULL);
+    logo_seed = tick.tv_sec * 1000000 + tick.tv_usec;
+    srand(logo_seed);
     logo_blocks_left = NUM_MICROBRICKS;
     for (size_t screen = 0; screen < nscreens; screen++) {
         shuffle(locks[screen]->bricks_pos, NUM_MICROBRICKS, sizeof(short) * 2);
@@ -214,6 +217,8 @@ generate_backgroung_pixle_color(unsigned int height, unsigned int y) {
 
 static void
 drawbackground(Display *dpy, struct lock **locks, int nscreens) {
+    gettimeofday(&tick, NULL);
+    srand(tick.tv_sec * 1000000 + tick.tv_usec);
     for (int screen = 0; screen < nscreens; screen++) {
         unsigned short width = locks[screen]->x;
         unsigned short height = locks[screen]->y;
@@ -235,7 +240,7 @@ drawlogo(Display *dpy, struct lock **locks, int nscreens) {
         // restore background
         XCopyArea(dpy, locks[screen]->pmap, locks[screen]->drawable, locks[screen]->gc, 0, 0, locks[screen]->x, locks[screen]->y, 0, 0);
 
-        srand(seed);
+        srand(logo_seed);
         for (size_t i = 0; i < logo_blocks_left; i++) {
             XSetForeground(dpy, locks[screen]->gc, BRICK_COLORS[rand() % NUM_BRICK_COLORS]);
             XFillRectangle(dpy, locks[screen]->drawable, locks[screen]->gc, locks[screen]->bricks_pos[i][0], locks[screen]->bricks_pos[i][1], PIXELS_PER_MICROBRICK, PIXELS_PER_MICROBRICK);
@@ -292,7 +297,8 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
             case XK_Escape:
                 explicit_bzero(&passwd, sizeof(passwd));
                 len = 0;
-                reset_logo(locks, nscreens);
+                drawbackground(dpy, locks, nscreens);
+                logo_blocks_left = NUM_MICROBRICKS;
                 break;
             case XK_BackSpace:
                 if (len) {
