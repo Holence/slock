@@ -5,7 +5,8 @@ After=suspend.target
 [Service]
 User=UserName
 Type=simple
-Environment="DISPLAY=:0" # echo $DISPLAY
+# echo $DISPLAY
+Environment="DISPLAY=:0"
 # Environment="XAUTHORITY=~/.Xauthority"
 ExecStart=slock
 
