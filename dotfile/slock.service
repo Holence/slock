@@ -3,9 +3,8 @@ Description=User suspend actions
 After=suspend.target
 
 [Service]
-User=UserName
+User=hc
 Type=simple
-# echo $DISPLAY
 Environment="DISPLAY=:0"
 # Environment="XAUTHORITY=~/.Xauthority"
 ExecStart=slock
