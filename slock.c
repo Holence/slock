@@ -35,6 +35,7 @@ char *argv0;
 #define NUM_MICROBRICKS       (NUM_BRICKS * MICROBRICKS_PER_BRICK * MICROBRICKS_PER_BRICK)
 #define NUM_DIRT_COLORS       LENGTH(DIRT_COLORS)
 #define NUM_BRICK_COLORS      LENGTH(BRICK_COLORS)
+#define NUM_GRASS_COLORS      LENGTH(GRASS_COLORS)
 #define PIXELS_PER_MICROBRICK (PIXELS_PER_BRICK / MICROBRICKS_PER_BRICK)
 #define PIXELS_PER_DIRT       (PIXELS_PER_MICROBRICK / DIRTS_PER_MICROBRICK)
 
@@ -210,18 +211,17 @@ static unsigned long
 generate_backgroung_pixle_color(unsigned int height, unsigned int y) {
     // top reserved for grass
     y += PIXELS_PER_DIRT;
-    if (y < 4 * PIXELS_PER_DIRT) {
-        // mix of grass and dirt
-        if (rand() % (y / PIXELS_PER_DIRT) == 0) {
-            return GRASS_COLORS[rand() % LENGTH(GRASS_COLORS)];
-        } else {
-            return DIRT_COLORS[rand() % NUM_DIRT_COLORS];
-        }
+
+    unsigned int grass_depth = ((double)PIXELS_PER_BRICK * 2 / 3);
+    unsigned long color;
+    if (y < grass_depth && (y <= PIXELS_PER_DIRT || rand() % (int)((double)y / PIXELS_PER_DIRT * 100 * 2 / 3) < 100)) {
+        // grass
+        color = GRASS_COLORS[rand() % NUM_GRASS_COLORS];
+    } else {
+        color = DIRT_COLORS[rand() % NUM_DIRT_COLORS];
     }
 
-    // only dirt
-    unsigned long color = DIRT_COLORS[rand() % NUM_DIRT_COLORS];
-    return dim_color(color, exp(-(double)y / (height / 3.14159)));
+    return dim_color(color, exp(-(double)y / height * 2.75));
 }
 
 static void

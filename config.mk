@@ -20,7 +20,7 @@ LIBS = -L/usr/lib -lc -lm -lcrypt -L${X11LIB} -lX11 ${XINERAMALIBS} -lXext -lXra
 
 # flags
 CPPFLAGS = -DVERSION=\"${VERSION}\" -D_DEFAULT_SOURCE -DHAVE_SHADOW_H ${XINERAMAFLAGS}
-CFLAGS = -std=c99 -pedantic -Wall -Os ${INCS} ${CPPFLAGS}
+CFLAGS = -std=c99 -pedantic -Wall -O2 ${INCS} ${CPPFLAGS}
 LDFLAGS = -s ${LIBS}
 COMPATSRC = explicit_bzero.c
 
