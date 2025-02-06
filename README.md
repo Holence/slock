@@ -23,4 +23,4 @@ Running slock
 -------------
 Simply invoke the 'slock' command. To get out of it, enter your password.
 
-<video src="demo/demo.mp4" controls/>
+![demo](demo/demo.gif)
